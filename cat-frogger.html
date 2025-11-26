@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cat Frogger</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            background: linear-gradient(to bottom, #87CEEB 0%, #98D8E8 100%);
+            font-family: 'Arial', sans-serif;
+        }
+
+        #gameCanvas {
+            border: 4px solid #333;
+            background: #333;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+
+        #gameInfo {
+            margin-top: 20px;
+            text-align: center;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            min-width: 400px;
+        }
+
+        #gameInfo h1 {
+            margin: 0 0 10px 0;
+            color: #333;
+            font-size: 2em;
+        }
+
+        #stats {
+            display: flex;
+            justify-content: space-around;
+            margin: 15px 0;
+            font-size: 1.2em;
+        }
+
+        .stat {
+            font-weight: bold;
+        }
+
+        #instructions {
+            margin-top: 15px;
+            color: #666;
+            font-size: 0.9em;
+        }
+
+        #message {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: #ff6b6b;
+            min-height: 30px;
+            margin: 10px 0;
+        }
+
+        .win {
+            color: #51cf66 !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="gameInfo">
+        <h1>🐱 Cat Frogger</h1>
+        <div id="stats">
+            <div class="stat">Lives: <span id="lives">3</span></div>
+            <div class="stat">Score: <span id="score">0</span></div>
+            <div class="stat">Level: <span id="level">1</span></div>
+        </div>
+        <div id="message"></div>
+        <div id="instructions">Use Arrow Keys to move • Get to the top to win! • Press R to restart</div>
+    </div>
+    <canvas id="gameCanvas" width="600" height="700"></canvas>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Game constants
+        const GRID_SIZE = 50;
+        const CANVAS_WIDTH = canvas.width;
+        const CANVAS_HEIGHT = canvas.height;
+        const ROWS = CANVAS_HEIGHT / GRID_SIZE;
+        const COLS = CANVAS_WIDTH / GRID_SIZE;
+
+        // Game state
+        let gameState = {
+            lives: 3,
+            score: 0,
+            level: 1,
+            gameOver: false,
+            won: false,
+            paused: false
+        };
+
+        // Cat player
+        let cat = {
+            x: 5,
+            y: 13,
+            width: GRID_SIZE - 10,
+            height: GRID_SIZE - 10
+        };
+
+        // Obstacles (vehicles)
+        let obstacles = [];
+
+        // Lane configuration
+        const lanes = [
+            { y: 11, speed: 2, direction: 1, color: '#ff6b6b', count: 3, spacing: 4 },
+            { y: 10, speed: 1.5, direction: -1, color: '#ffd93d', count: 4, spacing: 3 },
+            { y: 9, speed: 2.5, direction: 1, color: '#6bcf7f', count: 2, spacing: 6 },
+            { y: 8, speed: 1.8, direction: -1, color: '#4ecdc4', count: 3, spacing: 4 },
+            { y: 6, speed: 2.2, direction: 1, color: '#95e1d3', count: 3, spacing: 4 },
+            { y: 5, speed: 1.6, direction: -1, color: '#f38181', count: 4, spacing: 3 },
+            { y: 4, speed: 2.8, direction: 1, color: '#aa96da', count: 2, spacing: 6 },
+            { y: 3, speed: 2, direction: -1, color: '#fcbad3', count: 3, spacing: 4 }
+        ];
+
+        // Initialize obstacles
+        function initObstacles() {
+            obstacles = [];
+            lanes.forEach(lane => {
+                for (let i = 0; i < lane.count; i++) {
+                    obstacles.push({
+                        x: i * lane.spacing,
+                        y: lane.y,
+                        width: GRID_SIZE * 1.5,
+                        height: GRID_SIZE - 10,
+                        speed: lane.speed * (1 + (gameState.level - 1) * 0.2),
+                        direction: lane.direction,
+                        color: lane.color
+                    });
+                }
+            });
+        }
+
+        // Reset game
+        function resetGame() {
+            cat.x = 5;
+            cat.y = 13;
+            gameState.gameOver = false;
+            gameState.won = false;
+            gameState.paused = false;
+            initObstacles();
+            updateUI();
+        }
+
+        // Reset position (when hit)
+        function resetPosition() {
+            cat.x = 5;
+            cat.y = 13;
+        }
+
+        // Update UI
+        function updateUI() {
+            document.getElementById('lives').textContent = gameState.lives;
+            document.getElementById('score').textContent = gameState.score;
+            document.getElementById('level').textContent = gameState.level;
+
+            const messageEl = document.getElementById('message');
+            if (gameState.won) {
+                messageEl.textContent = 'YOU WIN! 🎉';
+                messageEl.className = 'win';
+            } else if (gameState.gameOver) {
+                messageEl.textContent = 'GAME OVER! 😿';
+                messageEl.className = '';
+            } else {
+                messageEl.textContent = '';
+                messageEl.className = '';
+            }
+        }
+
+        // Draw cat
+        function drawCat() {
+            const centerX = cat.x * GRID_SIZE + GRID_SIZE / 2;
+            const centerY = cat.y * GRID_SIZE + GRID_SIZE / 2;
+
+            // Cat body
+            ctx.fillStyle = '#ff8c42';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY, cat.width / 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Cat ears
+            ctx.fillStyle = '#ff8c42';
+            ctx.beginPath();
+            ctx.moveTo(centerX - 12, centerY - 12);
+            ctx.lineTo(centerX - 8, centerY - 20);
+            ctx.lineTo(centerX - 4, centerY - 12);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.moveTo(centerX + 12, centerY - 12);
+            ctx.lineTo(centerX + 8, centerY - 20);
+            ctx.lineTo(centerX + 4, centerY - 12);
+            ctx.fill();
+
+            // Cat eyes
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(centerX - 8, centerY - 3, 4, 0, Math.PI * 2);
+            ctx.arc(centerX + 8, centerY - 3, 4, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Pupils
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(centerX - 8, centerY - 3, 2, 0, Math.PI * 2);
+            ctx.arc(centerX + 8, centerY - 3, 2, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Cat nose
+            ctx.fillStyle = '#ff6b9d';
+            ctx.beginPath();
+            ctx.arc(centerX, centerY + 3, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            // Whiskers
+            ctx.strokeStyle = 'black';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(centerX - 15, centerY);
+            ctx.lineTo(centerX - 25, centerY - 2);
+            ctx.moveTo(centerX - 15, centerY + 3);
+            ctx.lineTo(centerX - 25, centerY + 3);
+            ctx.moveTo(centerX + 15, centerY);
+            ctx.lineTo(centerX + 25, centerY - 2);
+            ctx.moveTo(centerX + 15, centerY + 3);
+            ctx.lineTo(centerX + 25, centerY + 3);
+            ctx.stroke();
+        }
+
+        // Draw road
+        function drawRoad() {
+            // Safe zone at bottom
+            ctx.fillStyle = '#90EE90';
+            ctx.fillRect(0, 12 * GRID_SIZE, CANVAS_WIDTH, 2 * GRID_SIZE);
+
+            // Road
+            ctx.fillStyle = '#555';
+            ctx.fillRect(0, 3 * GRID_SIZE, CANVAS_WIDTH, 9 * GRID_SIZE);
+
+            // Road lines
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 2;
+            ctx.setLineDash([20, 15]);
+            for (let i = 4; i < 12; i++) {
+                if (i !== 7) { // Skip middle separator
+                    ctx.beginPath();
+                    ctx.moveTo(0, i * GRID_SIZE);
+                    ctx.lineTo(CANVAS_WIDTH, i * GRID_SIZE);
+                    ctx.stroke();
+                }
+            }
+            ctx.setLineDash([]);
+
+            // Middle safe zone
+            ctx.fillStyle = '#90EE90';
+            ctx.fillRect(0, 7 * GRID_SIZE, CANVAS_WIDTH, GRID_SIZE);
+
+            // Goal zone
+            ctx.fillStyle = '#FFD700';
+            ctx.fillRect(0, 0, CANVAS_WIDTH, 2 * GRID_SIZE);
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 30px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText('🏁 GOAL 🏁', CANVAS_WIDTH / 2, GRID_SIZE * 1.3);
+        }
+
+        // Draw obstacles
+        function drawObstacles() {
+            obstacles.forEach(obs => {
+                const x = obs.x * GRID_SIZE;
+                const y = obs.y * GRID_SIZE + 5;
+
+                // Vehicle body
+                ctx.fillStyle = obs.color;
+                ctx.fillRect(x, y, obs.width, obs.height);
+
+                // Vehicle details
+                ctx.fillStyle = '#333';
+                ctx.fillRect(x + 5, y + 5, obs.width - 10, obs.height - 10);
+
+                // Windows
+                ctx.fillStyle = '#87CEEB';
+                ctx.fillRect(x + 10, y + 8, obs.width / 3, obs.height / 2);
+
+                // Wheels
+                ctx.fillStyle = '#000';
+                ctx.beginPath();
+                ctx.arc(x + 15, y + obs.height, 5, 0, Math.PI * 2);
+                ctx.arc(x + obs.width - 15, y + obs.height, 5, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        // Update obstacles
+        function updateObstacles() {
+            obstacles.forEach(obs => {
+                obs.x += obs.speed * obs.direction * 0.05;
+
+                // Wrap around
+                if (obs.direction > 0 && obs.x > COLS + 2) {
+                    obs.x = -2;
+                } else if (obs.direction < 0 && obs.x < -2) {
+                    obs.x = COLS + 2;
+                }
+            });
+        }
+
+        // Check collision
+        function checkCollision() {
+            const catPixelX = cat.x * GRID_SIZE;
+            const catPixelY = cat.y * GRID_SIZE;
+
+            for (let obs of obstacles) {
+                const obsPixelX = obs.x * GRID_SIZE;
+                const obsPixelY = obs.y * GRID_SIZE;
+
+                if (catPixelX < obsPixelX + obs.width &&
+                    catPixelX + cat.width > obsPixelX &&
+                    catPixelY < obsPixelY + obs.height &&
+                    catPixelY + cat.height > obsPixelY) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Check win
+        function checkWin() {
+            return cat.y <= 1;
+        }
+
+        // Handle keyboard input
+        document.addEventListener('keydown', (e) => {
+            if (gameState.gameOver || gameState.won) {
+                if (e.key === 'r' || e.key === 'R') {
+                    gameState.lives = 3;
+                    gameState.score = 0;
+                    gameState.level = 1;
+                    resetGame();
+                }
+                return;
+            }
+
+            let moved = false;
+
+            switch(e.key) {
+                case 'ArrowUp':
+                    if (cat.y > 0) {
+                        cat.y--;
+                        moved = true;
+                        gameState.score += 10;
+                    }
+                    e.preventDefault();
+                    break;
+                case 'ArrowDown':
+                    if (cat.y < ROWS - 1) {
+                        cat.y++;
+                        moved = true;
+                    }
+                    e.preventDefault();
+                    break;
+                case 'ArrowLeft':
+                    if (cat.x > 0) {
+                        cat.x--;
+                        moved = true;
+                    }
+                    e.preventDefault();
+                    break;
+                case 'ArrowRight':
+                    if (cat.x < COLS - 1) {
+                        cat.x++;
+                        moved = true;
+                    }
+                    e.preventDefault();
+                    break;
+                case 'r':
+                case 'R':
+                    resetGame();
+                    break;
+            }
+
+            if (moved) {
+                updateUI();
+            }
+        });
+
+        // Game loop
+        function gameLoop() {
+            if (!gameState.gameOver && !gameState.won) {
+                // Update
+                updateObstacles();
+
+                // Check collisions
+                if (checkCollision()) {
+                    gameState.lives--;
+                    if (gameState.lives <= 0) {
+                        gameState.gameOver = true;
+                    }
+                    resetPosition();
+                    updateUI();
+                }
+
+                // Check win
+                if (checkWin()) {
+                    gameState.won = true;
+                    gameState.score += 100 * gameState.level;
+                    gameState.level++;
+                    updateUI();
+                    setTimeout(() => {
+                        if (gameState.won) {
+                            gameState.won = false;
+                            resetGame();
+                        }
+                    }, 2000);
+                }
+            }
+
+            // Draw
+            ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+            drawRoad();
+            drawObstacles();
+            drawCat();
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        // Start game
+        initObstacles();
+        updateUI();
+        gameLoop();
+    </script>
+</body>
+</html>
